@@ -1,0 +1,40 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  generateName: build-pipeline-run-
+spec:
+  params:
+    - name: SOURCE_URL
+      value: git@github.com:KyWa/kywa-website.git
+    - name: IMAGE
+      value: "kywa-website"
+    - name: IMAGE_REGISTRY
+      value: docker.io
+    - name: IMAGE_REPOSITORY
+      value: mineops
+    - name: DOCKERFILE
+      value: "Dockerfile"
+  pipelineRef:
+    name: build
+  workspaces:
+    - name: ssh-creds
+      secret:
+        secretName: ssh-auth
+        items:
+          - key: ssh-privatekey
+            path: id_rsa
+    - name: build
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteMany
+          resources:
+            requests:
+              storage: 2Gi
+    - name: registry-credentials
+      secret:
+        secretName: docker-hub
+        items:
+          - key: .dockerconfigjson
+            path: auth

@@ -1,0 +1,81 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: build-and-rollout
+spec:
+  params:
+    - name: SOURCE_URL
+      type: string
+      description: "Git repository URL"
+    - name: IMAGE_REGISTRY
+      type: string
+      description: "Image registry for pushing Images"
+    - name: IMAGE_REPOSITORY
+      type: string
+      description: "Image repository in the $(params.IMAGE_REGISTRY) to store the Image"
+    - name: IMAGE
+      type: string
+      description: "Image name"
+    - name: DEPLOYMENT
+      type: string
+      description: "Name of the Deployment to update"
+    - name: IMAGE_TAG
+      type: string
+      default: latest
+      description: "Image tag to be used"
+    - name: DOCKERFILE
+      type: string
+      description: "Path to the Dockerfile: Dockerfile or subdir/Dockerfile"
+      default: Dockerfile
+  results:
+    - name: image-digest
+      description: Image digest of the built image
+      value: $(tasks.build.results.image-digest)
+  workspaces:
+    - name: ssh-creds
+    - name: build
+    - name: registry-credentials
+  tasks:
+    - name: fetch-repository
+      taskRef:
+        name: git-clone
+      workspaces:
+        - name: ssh-directory
+          workspace: ssh-creds
+        - name: output
+          workspace: build
+      params:
+        - name: url
+          value: $(params.SOURCE_URL)
+        - name: deleteExisting
+          value: "true"
+    - name: build
+      taskRef:
+        name: buildah
+      runAfter:
+        - fetch-repository
+      params:
+        - name: IMAGE
+          value: $(params.IMAGE)
+        - name: IMAGE_TAG
+          value: $(params.IMAGE_TAG)
+        - name: REPOSITORY
+          value: $(params.IMAGE_REPOSITORY)
+        - name: REGISTRY
+          value: $(params.IMAGE_REGISTRY)
+        - name: DOCKERFILE
+          value: $(params.DOCKERFILE)
+      workspaces:
+        - name: builder
+          workspace: build
+        - name: registry-secret
+          workspace: registry-credentials
+    - name: update-deployment
+      taskRef:
+        name: rollout
+      params:
+        - name: IMAGE
+          value: $(params.IMAGE_REGISTRY)/$(params.IMAGE_REPOSITORY)/$(params.IMAGE)@$(tasks.build.results.image-digest)
+        - name: APPLICATION
+          value: $(params.DEPLOYMENT)

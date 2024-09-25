@@ -1,0 +1,53 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: buildah
+spec:
+  params:
+    - name: REGISTRY
+      description: Which Container registry to utilize
+      default: quay.io
+    - name: REPOSITORY
+      description: Which Container image repository to utilize
+    - name: IMAGE
+      description: "Reference of the image buildah will produce. Should include repository in its name: repository/image"
+    - name: IMAGE_TAG
+      description: Tag for the newly built image
+      default: latest
+    - name: DOCKERFILE
+      description: "Path to the Dockerfile to build. Give full path to the Dockerfile in repository: path/to/Dockerfile"
+      default: Dockerfile
+  results:
+    - name: image-digest
+      description: Image digest of newly built image
+  steps:
+    - name: build
+      image: quay.io/containers/buildah@sha256:4bf42285d469a2b254df082fb118a0ad8dee20a8168365589165c93e6f0e3c85
+      workingDir: $(workspaces.builder.path)
+      securityContext:
+        privileged: true
+      script: |
+        buildah --storage-driver=overlay build --no-cache -f $(params.DOCKERFILE) -t $(params.REGISTRY)/$(params.REPOSITORY)/$(params.IMAGE):$(params.IMAGE_TAG)
+      volumeMounts:
+        - name: varlibcontainers
+          mountPath: /var/lib/containers
+    - name: push
+      image: quay.io/containers/buildah@sha256:4bf42285d469a2b254df082fb118a0ad8dee20a8168365589165c93e6f0e3c85
+      workingDir: $(workspaces.builder.path)
+      securityContext:
+        privileged: true
+      script: |
+        buildah --storage-driver=overlay push --authfile $(workspaces.registry-secret.path)/auth --digestfile=$(workspaces.builder.path)/image-digest $(params.REGISTRY)/$(params.REPOSITORY)/$(params.IMAGE):$(params.IMAGE_TAG) 
+      volumeMounts:
+        - name: varlibcontainers
+          mountPath: /var/lib/containers
+    - name: digest-to-results
+      image: quay.io/containers/buildah@sha256:4bf42285d469a2b254df082fb118a0ad8dee20a8168365589165c93e6f0e3c85
+      script: cat $(workspaces.builder.path)/image-digest | tee /tekton/results/image-digest
+  volumes:
+    - name: varlibcontainers
+      emptyDir: {}
+  workspaces:
+    - name: builder
+    - name: registry-secret
